@@ -3,51 +3,53 @@
 namespace MoneroIntegrations\Custompayment\Controller\Gateway;
 
 use Magento\Framework\App\Action\Context;
+use RuntimeException;
+use InvalidArgumentException;
 
 // Monero_Library is just the contents of library.php. It's super messy but works for now
 class Monero_Library
 {
     protected $url = null, $is_debug = false, $parameters_structure = 'array';
-        
+
     protected $curl_options = array(
-                                    CURLOPT_CONNECTTIMEOUT => 8,
-                                    CURLOPT_TIMEOUT => 8
-                                    );
-    
-        
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 8
+    );
+
+
     private $httpErrors = array(
-                                400 => '400 Bad Request',
-                                401 => '401 Unauthorized',
-                                403 => '403 Forbidden',
-                                404 => '404 Not Found',
-                                405 => '405 Method Not Allowed',
-                                406 => '406 Not Acceptable',
-                                408 => '408 Request Timeout',
-                                500 => '500 Internal Server Error',
-                                502 => '502 Bad Gateway',
-                                503 => '503 Service Unavailable'
-                                );
-        
+        400 => '400 Bad Request',
+        401 => '401 Unauthorized',
+        403 => '403 Forbidden',
+        404 => '404 Not Found',
+        405 => '405 Method Not Allowed',
+        406 => '406 Not Acceptable',
+        408 => '408 Request Timeout',
+        500 => '500 Internal Server Error',
+        502 => '502 Bad Gateway',
+        503 => '503 Service Unavailable'
+    );
+
     public function __construct($pUrl)
     {
         $this->validate(false === extension_loaded('curl'), 'The curl extension must be loaded for using this class!');
         $this->validate(false === extension_loaded('json'), 'The json extension must be loaded for using this class!');
-            
+
         $this->url = $pUrl;
     }
-        
+
     private function getHttpErrorMessage($pErrorNumber)
     {
         return isset($this->httpErrors[$pErrorNumber]) ? $this->httpErrors[$pErrorNumber] : null;
     }
-        
+
     public function setDebug($pIsDebug)
     {
         $this->is_debug = !empty($pIsDebug);
         return $this;
     }
-        
-        /*  public function setParametersStructure($pParametersStructure)
+
+    /*  public function setParametersStructure($pParametersStructure)
          {
          if (in_array($pParametersStructure, array('array', 'object')))
          {
@@ -59,21 +61,18 @@ class Monero_Library
          }
          return $this;
          } */
-        
+
     public function setCurlOptions($pOptionsArray)
     {
-        if (is_array($pOptionsArray))
-        {
+        if (is_array($pOptionsArray)) {
             $this->curl_options = $pOptionsArray + $this->curl_options;
-        }
-        else
-        {
+        } else {
             throw new InvalidArgumentException('Invalid options type.');
         }
         return $this;
     }
-        
-    public function _run($pMethod, $pParams=null)
+
+    public function _run($pMethod, $pParams = null)
     {
         static $requestId = 0;
         // generating unique id per process
@@ -95,28 +94,25 @@ class Monero_Library
         $responseDecoded = json_decode($responseMessage, true);
         // check if decoding json generated any errors
         $jsonErrorMsg = $this->getJsonLastErrorMsg();
-        $this->validate( !is_null($jsonErrorMsg), $jsonErrorMsg . ': ' . $responseMessage);
+        $this->validate(!is_null($jsonErrorMsg), $jsonErrorMsg . ': ' . $responseMessage);
         // check if response is correct
         $this->validate(empty($responseDecoded['id']), 'Invalid response data structure: ' . $responseMessage);
         $this->validate($responseDecoded['id'] != $requestId, 'Request id: ' . $requestId . ' is different from Response id: ' . $responseDecoded['id']);
-        if (isset($responseDecoded['error']))
-        {
+        if (isset($responseDecoded['error'])) {
             $errorMessage = 'Request have return error: ' . $responseDecoded['error']['message'] . '; ' . "\n" .
                 'Request: ' . $request . '; ';
-            if (isset($responseDecoded['error']['data']))
-            {
+            if (isset($responseDecoded['error']['data'])) {
                 $errorMessage .= "\n" . 'Error data: ' . $responseDecoded['error']['data'];
             }
-            $this->validate( !is_null($responseDecoded['error']), $errorMessage);
+            $this->validate(!is_null($responseDecoded['error']), $errorMessage);
         }
         return $responseDecoded['result'];
     }
-    protected function & getResponse(&$pRequest)
+    protected function &getResponse(&$pRequest)
     {
         // do the actual connection
         $ch = curl_init();
-        if ( !$ch)
-        {
+        if (!$ch) {
             throw new RuntimeException('Could\'t initialize a cURL session');
         }
         curl_setopt($ch, CURLOPT_URL, $this->url);
@@ -125,52 +121,46 @@ class Monero_Library
         curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-type: application/json'));
         curl_setopt($ch, CURLOPT_ENCODING, 'gzip,deflate');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-        
+
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        if ( !curl_setopt_array($ch, $this->curl_options))
-        {
+        if (!curl_setopt_array($ch, $this->curl_options)) {
             throw new RuntimeException('Error while setting curl options');
         }
         // send the request
         $response = curl_exec($ch);
         // check http status code
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if (isset($this->httpErrors[$httpCode]))
-        {
+        if (isset($this->httpErrors[$httpCode])) {
             throw new RuntimeException('Response Http Error - ' . $this->httpErrors[$httpCode]);
         }
         // check for curl error
-        if (0 < curl_errno($ch))
-        {
-            throw new RuntimeException('Unable to connect to '.$this->url . ' Error: ' . curl_error($ch));
+        if (0 < curl_errno($ch)) {
+            throw new RuntimeException('Unable to connect to ' . $this->url . ' Error: ' . curl_error($ch));
         }
         // close the connection
         curl_close($ch);
         return $response;
     }
-        
+
     public function validate($pFailed, $pErrMsg)
     {
-        if ($pFailed)
-        {
+        if ($pFailed) {
             throw new RuntimeException($pErrMsg);
         }
     }
-        
+
     protected function debug($pAdd, $pShow = false)
     {
         static $debug, $startTime;
         // is_debug off return
-        if (false === $this->is_debug)
-        {
+        if (false === $this->is_debug) {
             return;
         }
         // add
         $debug .= $pAdd;
         // get starttime
         $startTime = empty($startTime) ? array_sum(explode(' ', microtime())) : $startTime;
-        if (true === $pShow and !empty($debug))
-        {
+        if (true === $pShow and !empty($debug)) {
             // get endtime
             $endTime = array_sum(explode(' ', microtime()));
             // performance summary
@@ -182,43 +172,65 @@ class Monero_Library
             $debug = $startTime = null;
         }
     }
-        
+
     function getJsonLastErrorMsg()
     {
-        if (!function_exists('json_last_error_msg'))
-        {
+        if (!function_exists('json_last_error_msg')) {
             function json_last_error_msg()
             {
                 static $errors = array(
-                                        JSON_ERROR_NONE           => 'No error',
-                                        JSON_ERROR_DEPTH          => 'Maximum stack depth exceeded',
-                                        JSON_ERROR_STATE_MISMATCH => 'Underflow or the modes mismatch',
-                                        JSON_ERROR_CTRL_CHAR      => 'Unexpected control character found',
-                                        JSON_ERROR_SYNTAX         => 'Syntax error',
-                                        JSON_ERROR_UTF8           => 'Malformed UTF-8 characters, possibly incorrectly encoded'
-                                        );
+                    JSON_ERROR_NONE           => 'No error',
+                    JSON_ERROR_DEPTH          => 'Maximum stack depth exceeded',
+                    JSON_ERROR_STATE_MISMATCH => 'Underflow or the modes mismatch',
+                    JSON_ERROR_CTRL_CHAR      => 'Unexpected control character found',
+                    JSON_ERROR_SYNTAX         => 'Syntax error',
+                    JSON_ERROR_UTF8           => 'Malformed UTF-8 characters, possibly incorrectly encoded'
+                );
                 $error = json_last_error();
                 return array_key_exists($error, $errors) ? $errors[$error] : 'Unknown error (' . $error . ')';
             }
         }
-        
+
         // Fix PHP 5.2 error caused by missing json_last_error function
-        if (function_exists('json_last_error'))
-        {
+        if (function_exists('json_last_error')) {
             return json_last_error() ? json_last_error_msg() : null;
-        }
-        else
-        {
+        } else {
             return null;
         }
     }
-    
+
+    public function store()
+    {
+        return $this->_run('store');
+    }
+
+    public function create_address($account_index = 0, $label = '')
+    {
+        $params = array('account_index' => $account_index, 'label' => $label);
+        $create_address_method = $this->_run('create_address', $params);
+        $save = $this->store(); // Save wallet state after subaddress creation
+        return $create_address_method;
+    }
+
+    public function get_transfers($arr)
+    {
+        $get_parameters = $arr;
+        $get_transfers = $this->_run('get_transfers', $get_parameters);
+        return $get_transfers;
+    }
+
+    public function get_address_index($subaddress)
+    {
+        $params = array('address' => $subaddress);
+        return $this->_run('get_address_index', $params);
+    }
+
     public function address()
     {
         $address = $this->_run('getaddress');
         return $address;
     }
-    
+
     public function getbalance()
     {
         $balance = $this->_run('getbalance');
@@ -234,12 +246,6 @@ class Monero_Library
         $incoming_parameters = array('transfer_type' => $type);
         $incoming_transfers = $this->_run('incoming_transfers', $incoming_parameters);
         return $incoming_transfers;
-    }
-    public function get_transfers($input_type, $input_value)
-    {
-        $get_parameters = array($input_type => $input_value);
-        $get_transfers = $this->_run('get_transfers', $get_parameters);
-        return $get_transfers;
     }
     public function view_key()
     {
@@ -262,7 +268,7 @@ class Monero_Library
         } else {
             $split_params = array('integrated_address' => $integrated_address);
             $split_methods = $this->_run('split_integrated_address', $split_params);
-                return $split_methods;
+            return $split_methods;
         }
     }
     public function make_uri($address, $amount, $recipient_name = null, $description = null)
@@ -304,12 +310,12 @@ class Monero_Library
 class Monero
 {
     private $monero_daemon;
-    
+
     public function __construct($rpc_address, $rpc_port)
     {
-        $this->monero_daemon = new Monero_Library('http://' . $rpc_address . ':'. $rpc_port . '/json_rpc'); // TODO: Get address:port from admin panel
+        $this->monero_daemon = new Monero_Library('http://' . $rpc_address . ':' . $rpc_port . '/json_rpc');
     }
-    
+
     public function retriveprice($currency)
     {
         $xmr_price = file_get_contents('https://min-api.cryptocompare.com/data/price?fsym=XMR&tsyms=BTC,USD,EUR,CAD,INR,GBP&extraParams=monero_magento');
@@ -330,42 +336,98 @@ class Monero
                 return $price;
         }
     }
-    
-    public function paymentid_cookie()
+
+    public function subaddress_cookie()
     {
-        if (!isset($_COOKIE['payment_id']))
-        {
-            $payment_id = bin2hex(openssl_random_pseudo_bytes(8));
-            setcookie('payment_id', $payment_id, time() + 2700);
+        if (!isset($_COOKIE['xmr_subaddress'])) {
+            // Generate subaddress
+            $xmr_subaddress = $this->monero_daemon->create_address(0);
+            setcookie('xmr_subaddress', $xmr_subaddress['address'], time() + 2700);
+        } else {
+            $xmr_subaddress = ['address' => $_COOKIE['xmr_subaddress']];
         }
-        else
-            $payment_id = $_COOKIE['payment_id'];
-        return $payment_id;
+        return $xmr_subaddress['address'];
     }
-    
+
     public function changeto($amount, $currency)
     {
         $rate = $this->retriveprice($currency);
         $price_converted = $amount / $rate;
         $converted_rounded = round($price_converted, 11); //the Monero wallet can't handle decimals smaller than 0.000000000001
-            return $converted_rounded;
+        return $converted_rounded;
     }
-    
-    public function verify_payment($payment_id, $amount)
+
+    protected function check_payment_rpc($subaddress)
     {
-        $message = "We are waiting for your payment to be confirmed";
+        $txs = array();
+        $address_index = $this->monero_daemon->get_address_index($subaddress);
+        if(isset($address_index['index']['minor'])){
+          $address_index = $address_index['index']['minor'];
+        }
+        else {
+          return $txs;
+        }
+        $payments = $this->monero_daemon->get_transfers(array( 'in' => true, 'pool' => true, 'subaddr_indices' => array($address_index)));
+        if(isset($payments['in'])) {
+          foreach($payments['in'] as $payment) {
+              $txs[] = array(
+                  'amount' => $payment['amount'],
+                  'txid' => $payment['txid'],
+                  'height' => $payment['height']
+              );
+          }
+        }
+        if(isset($payments['pool'])) {
+          foreach($payments['pool'] as $payment) {
+              $txs[] = array(
+                  'amount' => $payment['amount'],
+                  'txid' => $payment['txid'],
+                  'height' => $payment['height']
+              );
+          }
+        }
+        return $txs;
+    }
+
+    public function verify_payment($payment_id, $amount, $num_confirmations)
+    {
+        $message = "We are waiting for your payment.";
         $amount_atomic_units = $amount * 1000000000000;
-        $get_payments_method = $this->monero_daemon->get_payments($payment_id);
-        if (isset($get_payments_method["payments"][0]["amount"]))
-        {
-            if ($get_payments_method["payments"][0]["amount"] >= $amount_atomic_units)
-            {
+        $total_received = 0;
+
+        // Fetch transactions for the given payment subaddress
+        $txs = $this->check_payment_rpc($payment_id);
+
+        // If num_confirmations is 0, simply check if payment has been received
+        if ($num_confirmations == 0) {
+            foreach ($txs as $tx) {
+                $total_received += $tx['amount'];
+            }
+            if ($total_received >= $amount_atomic_units) {
+                $message = "Payment has been received. Thanks!";
+                return ['status' => true, 'message' => $message];
+            }
+        } else {
+            // Get current blockchain height
+            $current_blockchain_height = $this->monero_daemon->getheight();
+            foreach ($txs as $tx) {
+                // Calculate the number of confirmations for this transaction
+                $tx_confirmations = $current_blockchain_height['height'] - $tx['height'];
+            
+                // Check if the transaction amount is sufficient and it has enough confirmations
+                if ($tx_confirmations >= $num_confirmations) {
+                    $total_received += $tx['amount'];
+                }
+            }        
+            if ($total_received >= $amount_atomic_units) {
                 $message = "Payment has been received and confirmed. Thanks!";
-                return true;
+                return ['status' => true, 'message' => $message];
             }
         }
-        return false;
+        return ['status' => false, 'message' => $message];
     }
+
+
     public function integrated_address($payment_id)
     {
         $integrated_address = $this->monero_daemon->make_integrated_address($payment_id);
@@ -373,20 +435,30 @@ class Monero
         return $parsed_address;
     }
 }
-    
+
 class MoneroPayment extends \Magento\Framework\App\Action\Action
 {
-    public function __construct(\MoneroIntegrations\Custompayment\Helper\Data $helper,\Magento\Checkout\Model\Session $checkoutSession, \Magento\Store\Model\StoreManagerInterface $storeManager, \Magento\Checkout\Model\Cart $cart, \Magento\Framework\App\Action\Context $context)
-    {
+    protected $helper;
+    protected $checkoutSession;
+    protected $_storeManager;
+    protected $_cart;
+
+    public function __construct(
+        \MoneroIntegrations\Custompayment\Helper\Data $helper,
+        \Magento\Checkout\Model\Session $checkoutSession,
+        \Magento\Store\Model\StoreManagerInterface $storeManager,
+        \Magento\Checkout\Model\Cart $cart,
+        \Magento\Framework\App\Action\Context $context
+    ) {
         $this->helper = $helper;
         $this->_storeManager = $storeManager;
         $this->checkoutSession = $checkoutSession;
         $this->_cart = $cart;
         parent::__construct($context);
     }
-    
+
     public $monero;
-    
+
     public function execute()
     {
         $first = '';
@@ -399,60 +471,54 @@ class MoneroPayment extends \Magento\Framework\App\Action\Action
         $country = '';
         $region = '';
         $paramCount = 0;
-        
-        if(isset($_GET['first'])){
+
+        if (isset($_GET['first'])) {
             $first = $_GET['first'];
             $paramCount += 1;
         }
-        if(isset($_GET['last'])){
+        if (isset($_GET['last'])) {
             $last = $_GET['last'];
             $paramCount += 1;
         }
-        if(isset($_GET['email'])){
+        if (isset($_GET['email'])) {
             $email = $_GET['email'];
             $paramCount += 1;
         }
-        if(isset($_GET['phone'])){
+        if (isset($_GET['phone'])) {
             $phone = $_GET['phone'];
             $paramCount += 1;
         }
-        if(isset($_GET['city'])){
+        if (isset($_GET['city'])) {
             $city = $_GET['city'];
             $paramCount += 1;
         }
-        if(isset($_GET['street'])){
+        if (isset($_GET['street'])) {
             $street = $_GET['street'];
             $paramCount += 1;
         }
-        if(isset($_GET['postal'])){
+        if (isset($_GET['postal'])) {
             $postal = $_GET['postal'];
             $paramCount += 1;
         }
-        if(isset($_GET['country'])){
+        if (isset($_GET['country'])) {
             $country = $_GET['country'];
         }
-        if(isset($_GET['region'])){
+        if (isset($_GET['region'])) {
             $region = $_GET['region'];
         }
-        
+
         $rpc_address = $this->helper->grabConfig('payment/custompayment/rpc_address');
         $rpc_port = $this->helper->grabConfig('payment/custompayment/rpc_port');
+        $num_confirmations = $this->helper->grabConfig('payment/custompayment/num_confirmations');
         $monero = new Monero($rpc_address, $rpc_port);
-        
+
         $currency = 'USD';
         $grandTotal = $this->checkoutSession->getQuote()->getGrandTotal();
-        
+
         $price = $monero->changeto($grandTotal, $currency);
-        $payment_id = $monero->paymentid_cookie();
-        $integrated_address = $monero->integrated_address($payment_id);
-        $status = $monero->verify_payment($payment_id, $price);
-        if($status)
-        {
-            $status_message = "Payment has been received and confirmed. Thanks!";
-        }
-        else{
-            $status_message =  "We are waiting for your payment to be confirmed";
-        }
+        $subaddress = $monero->subaddress_cookie();
+        $status = $monero->verify_payment($subaddress, $price, $num_confirmations);
+        $status_message = $status['message'];
         echo "
         <head>
         <!--Import Google Icon Font-->
@@ -492,11 +558,11 @@ class MoneroPayment extends \Magento\Framework\App\Action\Action
             
             <div class='xmr-address'>
             <span class='xmr-label'>To this address:</span>
-            <div class='xmr-address-box'>$integrated_address</div>
+            <div class='xmr-address-box'>$subaddress</div>
             </div>
             <div class='xmr-qr-code'>
             <span class='xmr-label'>Or scan QR:</span>
-            <div class='xmr-qr-code-box'><img src='https://api.qrserver.com/v1/create-qr-code/? size=200x200&data=monero:$integrated_address' /></div>
+            <div class='xmr-qr-code-box'><img src='https://api.qrserver.com/v1/create-qr-code/? size=200x200&data=monero:$subaddress' /></div>
             </div>
             
             <div class='clear'></div>
@@ -646,42 +712,37 @@ class MoneroPayment extends \Magento\Framework\App\Action\Action
             </body>
             ";
         $items = $this->checkoutSession->getQuote()->getAllItems();
-        foreach($items as $item)
-        {
+        foreach ($items as $item) {
             $qty = $item->getQty();
             $prodId = $item->getProductId();
         }
-        $orderData=[
-                 'currency_id'  => $currency,
-                 'email'        => $email,
-                 'shipping_address' =>[
-                 'firstname'    => $first,
-                 'lastname'     => $last,
-                 'street' => $street,
-                 'city' => $city,
-                 'country_id' => $country,
-                 'region' => $region,
-                 'postcode' => $postal,
-                 'telephone' => $phone,
-                 'fax' => $phone,
-                 'save_in_address_book' => 1
-             ],
-             'items'=> [['product_id'=>$prodId,'qty'=>$qty]]
-         ];
-        if(isset($_GET['ordered']))
-        {
+        $orderData = [
+            'currency_id'  => $currency,
+            'email'        => $email,
+            'shipping_address' => [
+                'firstname'    => $first,
+                'lastname'     => $last,
+                'street' => $street,
+                'city' => $city,
+                'country_id' => $country,
+                'region' => $region,
+                'postcode' => $postal,
+                'telephone' => $phone,
+                'fax' => $phone,
+                'save_in_address_book' => 1
+            ],
+            'items' => [['product_id' => $prodId, 'qty' => $qty]]
+        ];
+        if (isset($_GET['ordered'])) {
             echo "<script type='text/javascript'>setTimeout(function () { location.reload(true); }, 30000);</script>"; // reload to try to verify payment after order data given
-            if($status)
-            {
+            if ($status) {
                 $this->helper->createOrder($orderData);
             }
-        }
-        else{
-            if($paramCount == 7) // check that all fields have been filled out
+        } else {
+            if ($paramCount == 7) // check that all fields have been filled out
             {
                 echo "<script type='text/javascript'>window.location.replace('MoneroPayment?first=$first&last=$last&email=$email&phone=$phone&city=$city&street=$street&postal=$postal&country=$country&region=$region&ordered=1')</script>";
             }
         }
     }
 }
-
